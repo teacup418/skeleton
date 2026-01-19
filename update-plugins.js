@@ -6,7 +6,7 @@ const https = require('https');
 const { execSync } = require('child_process');
 
 const plugins = [
-  { repo: 'No-Instructions/Relay', name: 'relay' },
+  { repo: 'No-Instructions/Relay', name: 'system3-relay' },
   { repo: 'remotely-save/remotely-save', name: 'remotely-save' }
 ];
 
