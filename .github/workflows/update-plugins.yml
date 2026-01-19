@@ -1,5 +1,8 @@
 name: Update Obsidian Plugins
 
+permissions:
+  contents: write
+
 on:
   schedule:
     - cron: '0 0 * * *'  # 每天午夜运行
