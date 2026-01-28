@@ -141,7 +141,7 @@ jobs:
       - name: Create zip
         if: steps.check.outputs.has-updates == 'true'
         run: |
-          zip -r skeleton-template.zip . -x ".git/*" ".github/*"
+          zip -r skeleton.zip . -x ".git/*" ".github/*"
 
       - name: Set release tag
         if: steps.check.outputs.has-updates == 'true'
@@ -156,6 +156,6 @@ jobs:
           target_commitish: ${{ steps.commit.outputs.commit_sha }}
           name: Template Update ${{ steps.set_tag.outputs.tag }}
           body: Updated plugins to latest versions
-          files: skeleton-template.zip
+          files: skeleton.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
