@@ -37,7 +37,7 @@ jobs:
             local folder=$1
             local manifest=".obsidian/plugins/$folder/manifest.json"
             if [ -f "$manifest" ]; then
-              jq -r '.version' "$manifest"
+              jq -r '.version // "0.0.0"' "$manifest" 2>/dev/null || echo "0.0.0"
             else
               echo "0.0.0"
             fi
@@ -46,33 +46,36 @@ jobs:
           compare_versions() {
             local v1=$1
             local v2=$2
-            [ "$v1" = "$(echo -e "$v1\n$v2" | sort -V | tail -n1)" ] && [ "$v1" != "$v2" ]
+            if [ "$v1" = "$v2" ]; then return 1; fi
+            local newer=$(printf "%s\n%s" "$v1" "$v2" | sort -V | tail -n1)
+            [ "$v1" = "$newer" ]
           }
 
           download_and_extract() {
             local repo=$1
             local folder=$2
-            local latest_release=$3
+            local release_json=$3
 
-            echo "Fetching assets for $repo"
-            local assets=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "$latest_release" | jq '.assets')
-            echo "Assets: $assets"
+            echo "Processing assets for $repo"
+            local assets=$(echo "$release_json" | jq '.assets')
 
-            # Define the files to download
             local files_to_download=("main.js" "manifest.json" "styles.css")
-
             mkdir -p ".obsidian/plugins/$folder"
 
             for file in "${files_to_download[@]}"; do
               local asset_url=$(echo "$assets" | jq -r ".[] | select(.name == \"$file\") | .browser_download_url")
 
-              if [ -z "$asset_url" ]; then
-                echo "File $file not found in release assets for $repo"
+              if [ -z "$asset_url" ] || [ "$asset_url" == "null" ]; then
+                echo "Warning: File $file not found in release assets for $repo"
                 continue
               fi
 
               echo "Downloading $file from $asset_url"
-              curl -L -o ".obsidian/plugins/$folder/$file" "$asset_url"
+              if curl -sL -f -o ".obsidian/plugins/$folder/$file" "$asset_url"; then
+                 echo "$file downloaded successfully."
+              else
+                 echo "Error: Failed to download $file"
+              fi
             done
           }
 
@@ -85,12 +88,25 @@ jobs:
             echo "Current version: $current_version"
 
             latest_release_url="https://api.github.com/repos/$repo/releases/latest"
-            latest_version=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "$latest_release_url" | jq -r '.tag_name' | sed 's/^v//')
+            
+            # Fetch release JSON once
+            if ! release_json=$(curl -sH "Authorization: token $GITHUB_TOKEN" -f "$latest_release_url"); then
+               echo "Error: Failed to fetch release info for $repo"
+               continue
+            fi
+            
+            latest_version=$(echo "$release_json" | jq -r '.tag_name // empty' | sed 's/^v//')
+            
+            if [ -z "$latest_version" ]; then
+               echo "Error: Could not determine latest version for $repo"
+               continue
+            fi
+
             echo "Latest version: $latest_version"
 
             if compare_versions "$latest_version" "$current_version"; then
               echo "Updating $repo from $current_version to $latest_version"
-              download_and_extract "$repo" "$folder" "$latest_release_url"
+              download_and_extract "$repo" "$folder" "$release_json"
               has_updates=true
             else
               echo "No update needed for $repo (current: $current_version, latest: $latest_version)"
@@ -98,9 +114,9 @@ jobs:
           done
 
           if $has_updates; then
-            echo "has-updates=true" >> $GITHUB_OUTPUT
+            echo "has-updates=true" >> "$GITHUB_OUTPUT"
           else
-            echo "has-updates=false" >> $GITHUB_OUTPUT
+            echo "has-updates=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Configure Git
@@ -110,12 +126,16 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Commit changes
+        id: commit
         if: steps.check.outputs.has-updates == 'true'
         run: |
           if [ -n "$(git status --porcelain)" ]; then
             git add .
             git commit -m "Update Obsidian plugins to latest releases"
             git push
+            echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          else
+             echo "commit_sha=$GITHUB_SHA" >> $GITHUB_OUTPUT
           fi
 
       - name: Create zip
@@ -123,12 +143,18 @@ jobs:
         run: |
           zip -r skeleton-template.zip . -x ".git/*" ".github/*"
 
+      - name: Set release tag
+        if: steps.check.outputs.has-updates == 'true'
+        id: set_tag
+        run: echo "tag=v$(date +%Y%m%d%H%M)" >> $GITHUB_OUTPUT
+
       - name: Create release
         if: steps.check.outputs.has-updates == 'true'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: v$(date +%Y%m%d)
-          name: Template Update $(date +%Y-%m-%d)
+          tag_name: ${{ steps.set_tag.outputs.tag }}
+          target_commitish: ${{ steps.commit.outputs.commit_sha }}
+          name: Template Update ${{ steps.set_tag.outputs.tag }}
           body: Updated plugins to latest versions
           files: skeleton-template.zip
         env:
