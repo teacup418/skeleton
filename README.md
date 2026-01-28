@@ -10,6 +10,7 @@
 - 安装relay和remotely-save插件
 
 **还需要完成的设置**
+- **完成remotely-save导入之前不要修改笔记库的名字！！！**会导致导入报错，如果已经修改，请改回`skeleton`
 - 登陆relay
 - 创建或使用已有的服务器，关联repo文件夹。仅repo下的`.md`文件会被relay追踪并同步。
 - 在remotely-save插件导入导出功能中，粘贴下面的URL，导入预设的配置。
