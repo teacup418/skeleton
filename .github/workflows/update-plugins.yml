@@ -54,27 +54,39 @@ jobs:
             local folder=$2
             local latest_release=$3
 
-            local asset_url=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "$latest_release" | jq -r '.assets[] | select(.name | endswith(".zip")) | .browser_download_url' | head -1)
+            echo "Fetching assets for $repo"
+            local assets=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "$latest_release" | jq '.assets')
+            echo "Assets: $assets"
 
-            if [ -z "$asset_url" ]; then
-              echo "No zip asset found for $repo"
-              return 1
-            fi
+            # Define the files to download
+            local files_to_download=("main.js" "manifest.json" "styles.css")
 
-            local zip_file="$folder.zip"
-            curl -L -o "$zip_file" "$asset_url"
-            unzip -o "$zip_file" -d ".obsidian/plugins/$folder"
-            rm "$zip_file"
+            mkdir -p ".obsidian/plugins/$folder"
+
+            for file in "${files_to_download[@]}"; do
+              local asset_url=$(echo "$assets" | jq -r ".[] | select(.name == \"$file\") | .browser_download_url")
+
+              if [ -z "$asset_url" ]; then
+                echo "File $file not found in release assets for $repo"
+                continue
+              fi
+
+              echo "Downloading $file from $asset_url"
+              curl -L -o ".obsidian/plugins/$folder/$file" "$asset_url"
+            done
           }
 
           has_updates=false
 
           for plugin in "${PLUGINS[@]}"; do
             IFS=':' read -r repo folder <<< "$plugin"
+            echo "Checking plugin: $repo -> $folder"
             current_version=$(get_current_version "$folder")
+            echo "Current version: $current_version"
 
             latest_release_url="https://api.github.com/repos/$repo/releases/latest"
             latest_version=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "$latest_release_url" | jq -r '.tag_name' | sed 's/^v//')
+            echo "Latest version: $latest_version"
 
             if compare_versions "$latest_version" "$current_version"; then
               echo "Updating $repo from $current_version to $latest_version"
