@@ -1,0 +1,74 @@
+name: Check Plugin Updates and Sync
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # 每天凌晨2点运行
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-plugins:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # 获取完整历史以便提交
+
+      - name: Update Plugins Logic
+        id: update_check
+        run: |
+          HAS_UPDATE=false
+          PLUGINS=("No-Instructions/Relay" "remotely-save/remotely-save")
+          
+          for repo in "${PLUGINS[@]}"; do
+            plugin_id=$(echo $repo | cut -d'/' -f2)
+            plugin_dir=".obsidian/plugins/$plugin_id"
+            mkdir -p "$plugin_dir"
+
+            # 获取远程最新版本号
+            latest_release_json=$(curl -s "https://api.github.com/repos/$repo/releases/latest")
+            remote_version=$(echo "$latest_release_json" | jq -r '.tag_name' | sed 's/v//g')
+            
+            # 获取本地当前版本号 (如果不存在则设为 0)
+            local_version="0.0.0"
+            if [ -f "$plugin_dir/manifest.json" ]; then
+              local_version=$(jq -r '.version' "$plugin_dir/manifest.json")
+            fi
+
+            echo "插件 $plugin_id: 本地版本 $local_version, 远程版本 $remote_version"
+
+            if [ "$remote_version" != "$local_version" ]; then
+              echo "检测到新版本，开始下载..."
+              HAS_UPDATE=true
+              assets=$(echo "$latest_release_json" | jq -r '.assets[].browser_download_url')
+              for url in $assets; do
+                filename=$(basename "$url")
+                if [[ "$filename" == "main.js" || "$filename" == "manifest.json" || "$filename" == "styles.css" ]]; then
+                  curl -L -o "$plugin_dir/$filename" "$url"
+                fi
+              done
+            fi
+          done
+          echo "has_update=$HAS_UPDATE" >> $GITHUB_OUTPUT
+
+      - name: Commit and Push Changes
+        if: steps.update_check.outputs.has_update == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .obsidian/plugins/
+          git commit -m "chore: 自动更新插件版本 $(date +'%Y-%m-%d')"
+          git push
+
+      - name: Create Zip and Release
+        if: steps.update_check.outputs.has_update == 'true'
+        run: |
+          zip -r obsidian-template.zip . -x "*.git*" "*.github*"
+          # 使用当前的日期作为 Tag
+          TAG_NAME="v$(date +'%Y.%m.%d-%H%M')"
+          gh release create "$TAG_NAME" obsidian-template.zip --title "插件更新补丁 $TAG_NAME" --notes "此版本包含最新的插件更新。"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

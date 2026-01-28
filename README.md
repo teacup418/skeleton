@@ -7,6 +7,8 @@ This repository contains an Obsidian vault that automatically updates specific p
 - [Relay](https://github.com/No-Instructions/Relay)
 - [Remotely Save](https://github.com/remotely-save/remotely-save)
 
+https://github.com/remotely-save/remotely-save/releases
+
 ## GitHub Action
 
 The workflow in `.github/workflows/update-plugins.yml` runs daily and checks for new releases of the specified plugins. If a new release is found, it downloads the plugin zip, extracts it to `.obsidian/plugins/`, and commits the changes.
