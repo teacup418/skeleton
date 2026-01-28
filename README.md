@@ -1,27 +1,29 @@
-# Obsidian Vault with Auto-Updating Plugins
+本仓库基于1.11.5版本创建的默认仓库修改
 
-This repository contains an Obsidian vault that automatically updates specific plugins when new releases are detected.
+执行了以下设置
+- 指定新建笔记文件夹为`repo`
+- 指定默认附件位置为`_assets`
+- 设置删除后文件移动到`.trash`文件夹并关闭删除提示
+- 关闭安全模式，开启插件市场
+- 安装relay和remotely-save插件
 
-## Plugins
+还需要完成的设置：
+- 登陆relay
+- 创建或使用已有的服务器，关联repo文件夹。仅repo下的`.md`文件会被relay追踪并同步。
+- 在remotely-save插件导入导出功能中，粘贴下面的URL，导入预设的配置。
 
-- [Relay](https://github.com/No-Instructions/Relay)
-- [Remotely Save](https://github.com/remotely-save/remotely-save)
+该remotely-save配置设置如下：
+- 仅同步下面4个较少改动的文件夹，经常修改的文字类笔记数据由relay同步。
+	- `.trash` 废纸篓
+	- `_assets` 附件
+	- `tools` 其他插件会产生的无法被relay同步的数据
+	- `.obsidian` ob笔记库设置
+- 激活同步以下划线开头的文件夹
+- 同步obsidian配置文件夹
+- 插件触发删除移动到.trash文件夹
+- 每5min自动运行
+- 开启软件30s同步一次
 
-https://github.com/remotely-save/remotely-save/releases
-
-## GitHub Action
-
-The workflow in `.github/workflows/update-plugins.yml` runs daily and checks for new releases of the specified plugins. If a new release is found, it downloads the plugin zip, extracts it to `.obsidian/plugins/`, and commits the changes.
-
-## Setup
-
-1. Ensure your repository has the `.obsidian` directory structure.
-2. The action uses `GITHUB_TOKEN` for authentication.
-3. Versions are tracked in `plugins_versions.json`.
-
-## Manual Trigger
-
-You can manually trigger the update by going to the Actions tab and running the "Update Obsidian Plugins" workflow.
-
-
-https://github.com/teacup418/skeleton.git
+```
+obsidian://remotely-save?func=settings&version=0.5.25&vault=skeleton&data=%7B%22password%22%3A%22%22%2C%22serviceType%22%3A%22s3%22%2C%22currLogLevel%22%3A%22info%22%2C%22autoRunEveryMilliseconds%22%3A300000%2C%22initRunAfterMilliseconds%22%3A30000%2C%22syncOnSaveAfterMilliseconds%22%3A-1%2C%22agreeToUploadExtraMetadata%22%3Atrue%2C%22concurrency%22%3A5%2C%22syncConfigDir%22%3Atrue%2C%22syncBookmarks%22%3Afalse%2C%22syncUnderscoreItems%22%3Atrue%2C%22lang%22%3A%22auto%22%2C%22logToDB%22%3Afalse%2C%22skipSizeLargerThan%22%3A-1%2C%22ignorePaths%22%3A%5B%5D%2C%22onlyAllowPaths%22%3A%5B%22.trash%22%2C%22.obsidian%22%2C%22_assets%22%2C%22tools%22%5D%2C%22enableStatusBarInfo%22%3Atrue%2C%22deleteToWhere%22%3A%22obsidian%22%2C%22agreeToUseSyncV3%22%3Atrue%2C%22conflictAction%22%3A%22keep_newer%22%2C%22howToCleanEmptyFolder%22%3A%22clean_both%22%2C%22protectModifyPercentage%22%3A50%2C%22syncDirection%22%3A%22bidirectional%22%2C%22obfuscateSettingFile%22%3Atrue%2C%22enableMobileStatusBar%22%3Afalse%2C%22encryptionMethod%22%3A%22rclone-base64%22%2C%22profiler%22%3A%7B%22enable%22%3Afalse%2C%22enablePrinting%22%3Afalse%2C%22recordSize%22%3Afalse%7D%7D
+```

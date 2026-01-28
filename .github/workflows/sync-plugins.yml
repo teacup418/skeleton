@@ -1,74 +1,68 @@
-name: Check Plugin Updates and Sync
+name: Generate Obsidian Template Release
 
 on:
   schedule:
-    - cron: '0 2 * * *' # 每天凌晨2点运行
-  workflow_dispatch:
+    - cron: '0 2 * * *' # 每天凌晨2点检查
+  workflow_dispatch: # 支持手动触发
 
 permissions:
   contents: write
 
 jobs:
-  update-plugins:
+  build-release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # 获取完整历史以便提交
+        uses: actions/checkout@v4
 
-      - name: Update Plugins Logic
-        id: update_check
+      - name: Download Latest Plugins
+        id: download_plugins
         run: |
-          HAS_UPDATE=false
           PLUGINS=("No-Instructions/Relay" "remotely-save/remotely-save")
+          VERSION_INFO=""
           
           for repo in "${PLUGINS[@]}"; do
             plugin_id=$(echo $repo | cut -d'/' -f2)
             plugin_dir=".obsidian/plugins/$plugin_id"
             mkdir -p "$plugin_dir"
-
-            # 获取远程最新版本号
-            latest_release_json=$(curl -s "https://api.github.com/repos/$repo/releases/latest")
-            remote_version=$(echo "$latest_release_json" | jq -r '.tag_name' | sed 's/v//g')
             
-            # 获取本地当前版本号 (如果不存在则设为 0)
-            local_version="0.0.0"
-            if [ -f "$plugin_dir/manifest.json" ]; then
-              local_version=$(jq -r '.version' "$plugin_dir/manifest.json")
-            fi
-
-            echo "插件 $plugin_id: 本地版本 $local_version, 远程版本 $remote_version"
-
-            if [ "$remote_version" != "$local_version" ]; then
-              echo "检测到新版本，开始下载..."
-              HAS_UPDATE=true
-              assets=$(echo "$latest_release_json" | jq -r '.assets[].browser_download_url')
-              for url in $assets; do
-                filename=$(basename "$url")
-                if [[ "$filename" == "main.js" || "$filename" == "manifest.json" || "$filename" == "styles.css" ]]; then
-                  curl -L -o "$plugin_dir/$filename" "$url"
-                fi
-              done
-            fi
+            echo "Fetching latest release for $repo..."
+            latest_json=$(curl -s "https://api.github.com/repos/$repo/releases/latest")
+            tag=$(echo "$latest_json" | jq -r '.tag_name')
+            VERSION_INFO="$VERSION_INFO | $plugin_id: $tag"
+            
+            assets=$(echo "$latest_json" | jq -r '.assets[].browser_download_url')
+            for url in $assets; do
+              filename=$(basename "$url")
+              if [[ "$filename" == "main.js" || "$filename" == "manifest.json" || "$filename" == "styles.css" ]]; then
+                curl -L -o "$plugin_dir/$filename" "$url"
+              fi
+            done
           done
-          echo "has_update=$HAS_UPDATE" >> $GITHUB_OUTPUT
+          echo "versions=$VERSION_INFO" >> $GITHUB_OUTPUT
 
-      - name: Commit and Push Changes
-        if: steps.update_check.outputs.has_update == 'true'
+      - name: Create Zip Package
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add .obsidian/plugins/
-          git commit -m "chore: 自动更新插件版本 $(date +'%Y-%m-%d')"
-          git push
+          # 打包当前目录（包含刚下载到 .obsidian/plugins 的文件）
+          # 排除 git 相关文件，确保下载包干净
+          zip -r obsidian-template.zip . -x "*.git*" ".github*"
 
-      - name: Create Zip and Release
-        if: steps.update_check.outputs.has_update == 'true'
-        run: |
-          zip -r obsidian-template.zip . -x "*.git*" "*.github*"
-          # 使用当前的日期作为 Tag
-          TAG_NAME="v$(date +'%Y.%m.%d-%H%M')"
-          gh release create "$TAG_NAME" obsidian-template.zip --title "插件更新补丁 $TAG_NAME" --notes "此版本包含最新的插件更新。"
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: "latest-build"
+          name: "Obsidian 自动同步模板"
+          body: |
+            ### 自动构建说明
+            这是一个包含最新同步插件的 Obsidian 仓库模板。
+            
+            **包含插件版本:**
+            ${{ steps.download_plugins.outputs.versions }}
+            
+            **使用方法:**
+            1. 下载下方的 `obsidian-template.zip`
+            2. 解压并用 Obsidian 打开
+            3. 配置 Remotely Save 和 Relay 即可
+          files: obsidian-template.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
