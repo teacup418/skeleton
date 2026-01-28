@@ -11,6 +11,8 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
+    outputs:
+      has-updates: ${{ steps.check.outputs.has-updates }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -18,26 +20,104 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
+      - name: Install unzip and jq
+        run: sudo apt-get update && sudo apt-get install -y unzip jq
 
-      - name: Install dependencies
-        run: npm install @octokit/rest
+      - name: Check for updates and download
+        id: check
+        run: |
+          PLUGINS=(
+            "remotely-save/remotely-save:remotely-save"
+            "No-Instructions/Relay:system3-relay"
+          )
 
-      - name: Update plugins
-        run: node update-plugins.js
+          GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+
+          get_current_version() {
+            local folder=$1
+            local manifest=".obsidian/plugins/$folder/manifest.json"
+            if [ -f "$manifest" ]; then
+              jq -r '.version' "$manifest"
+            else
+              echo "0.0.0"
+            fi
+          }
+
+          compare_versions() {
+            local v1=$1
+            local v2=$2
+            [ "$v1" = "$(echo -e "$v1\n$v2" | sort -V | tail -n1)" ] && [ "$v1" != "$v2" ]
+          }
+
+          download_and_extract() {
+            local repo=$1
+            local folder=$2
+            local latest_release=$3
+
+            local asset_url=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "$latest_release" | jq -r '.assets[] | select(.name | endswith(".zip")) | .browser_download_url' | head -1)
+
+            if [ -z "$asset_url" ]; then
+              echo "No zip asset found for $repo"
+              return 1
+            fi
+
+            local zip_file="$folder.zip"
+            curl -L -o "$zip_file" "$asset_url"
+            unzip -o "$zip_file" -d ".obsidian/plugins/$folder"
+            rm "$zip_file"
+          }
+
+          has_updates=false
+
+          for plugin in "${PLUGINS[@]}"; do
+            IFS=':' read -r repo folder <<< "$plugin"
+            current_version=$(get_current_version "$folder")
+
+            latest_release_url="https://api.github.com/repos/$repo/releases/latest"
+            latest_version=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "$latest_release_url" | jq -r '.tag_name' | sed 's/^v//')
+
+            if compare_versions "$latest_version" "$current_version"; then
+              echo "Updating $repo from $current_version to $latest_version"
+              download_and_extract "$repo" "$folder" "$latest_release_url"
+              has_updates=true
+            else
+              echo "No update needed for $repo (current: $current_version, latest: $latest_version)"
+            fi
+          done
+
+          if $has_updates; then
+            echo "has-updates=true" >> $GITHUB_OUTPUT
+          else
+            echo "has-updates=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Configure Git
+        if: steps.check.outputs.has-updates == 'true'
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Commit changes
+        if: steps.check.outputs.has-updates == 'true'
         run: |
           if [ -n "$(git status --porcelain)" ]; then
             git add .
             git commit -m "Update Obsidian plugins to latest releases"
             git push
           fi
+
+      - name: Create zip
+        if: steps.check.outputs.has-updates == 'true'
+        run: |
+          zip -r skeleton-template.zip . -x ".git/*" ".github/*"
+
+      - name: Create release
+        if: steps.check.outputs.has-updates == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v$(date +%Y%m%d)
+          name: Template Update $(date +%Y-%m-%d)
+          body: Updated plugins to latest versions
+          files: skeleton-template.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
